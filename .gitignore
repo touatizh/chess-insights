@@ -37,3 +37,7 @@ htmlcov/
 # Node (frontend, later phases)
 node_modules/
 frontend/dist/
+*.tsbuildinfo
+
+# Local-only dev overrides (tailscale exposure, never committed)
+frontend/vite.config.local.ts

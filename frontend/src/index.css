@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100vh;
+  }
+
+  body {
+    margin: 0;
+    background-color: theme("colors.felt");
+    /* Felt board texture: soft top-left light, deeper bottom-right shadow. */
+    background-image: radial-gradient(circle at 15% 10%, rgba(255, 255, 255, 0.03), transparent 40%),
+      radial-gradient(circle at 85% 90%, rgba(0, 0, 0, 0.15), transparent 50%);
+    color: theme("colors.chalk");
+    font-family: theme("fontFamily.serif");
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  /* Deckle top edge — a repeating brass gradient stripe on the document card. */
+  .deckle-edge::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: repeating-linear-gradient(
+      90deg,
+      theme("colors.brass") 0 14px,
+      transparent 14px 20px
+    );
+    opacity: 0.55;
+  }
+
+  /* Diagonal stamp-red hatch — the analyzing progress fill. */
+  .hatch-fill {
+    background: repeating-linear-gradient(
+      45deg,
+      theme("colors.stamp") 0 6px,
+      theme("colors.stamp-soft") 6px 12px
+    );
+  }
+
+  /* Dashed ruled paper divider between document sections. */
+  .rule-dashed {
+    border-bottom: 1px dashed theme("colors.paper-line");
+  }
+}
+
+/* Respect reduced-motion for every orchestrated animation (design guide §Motion). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
