@@ -8,7 +8,13 @@ import httpx
 import pytest
 import respx
 
-from app.lichess import LichessError, fetch_games, parse_ndjson
+from app.lichess import (
+    LichessError,
+    LichessRateLimitError,
+    LichessUserNotFoundError,
+    fetch_games,
+    parse_ndjson,
+)
 
 USERNAME = "someuser"
 
@@ -140,8 +146,40 @@ def test_parse_ndjson_skips_games_without_subject() -> None:
 @respx.mock
 def test_fetch_games_404_raises() -> None:
     _mock_route("", status_code=404)
-    with pytest.raises(LichessError):
+    with pytest.raises(LichessUserNotFoundError):
         fetch_games(USERNAME)
+
+
+@respx.mock
+def test_masked_404_with_existing_user_is_rate_limit() -> None:
+    # Lichess sometimes masks a throttle as a 404 {"error":"Not found"} on the
+    # games-export endpoint. If /api/user confirms the user exists, treat it as
+    # a rate-limit error, not user-not-found.
+    _mock_route('{"error":"Not found"}', status_code=404)
+    respx.get(url__regex=r"https://lichess\.org/api/user/.*").mock(
+        return_value=httpx.Response(200, json={"id": USERNAME})
+    )
+    with pytest.raises(LichessRateLimitError):
+        fetch_games(USERNAME)
+
+
+@respx.mock
+def test_masked_404_with_unknown_user_is_not_found() -> None:
+    # Same body, but the user does not exist -> genuine not-found.
+    _mock_route('{"error":"Not found"}', status_code=404)
+    respx.get(url__regex=r"https://lichess\.org/api/user/.*").mock(
+        return_value=httpx.Response(404, text="")
+    )
+    with pytest.raises(LichessUserNotFoundError):
+        fetch_games(USERNAME)
+
+
+@respx.mock
+def test_fetch_games_sends_user_agent() -> None:
+    route = _mock_route(_ndjson(FULL_GAME_WHITE_WIN))
+    fetch_games(USERNAME)
+    request = route.calls.last.request
+    assert "chess-insights" in request.headers["User-Agent"]
 
 
 @respx.mock
@@ -166,3 +204,11 @@ def test_fetch_games_retries_once_on_429(monkeypatch: pytest.MonkeyPatch) -> Non
     games = fetch_games(USERNAME)
     assert len(games) == 1
     assert sleeps == [60]
+
+
+@respx.mock
+def test_fetch_games_persistent_429_raises_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.lichess.time.sleep", lambda s: None)
+    _mock_route("", status_code=429)
+    with pytest.raises(LichessRateLimitError):
+        fetch_games(USERNAME)

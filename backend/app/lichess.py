@@ -14,6 +14,13 @@ from typing import Any
 import httpx
 
 LICHESS_GAMES_URL = "https://lichess.org/api/games/user/{username}"
+LICHESS_USER_URL = "https://lichess.org/api/user/{username}"
+
+# Lichess asks every API client to send a descriptive User-Agent. Without one
+# the bulk games-export endpoint may reject requests — and, misleadingly, return
+# a 404 {"error":"Not found"} instead of an honest 429 for throttled IPs, which
+# breaks naive retry-on-429 logic.
+USER_AGENT = "chess-insights/0.1 (+https://github.com/touatizh/chess-insights)"
 
 # Games shorter than this many plies are aborts/rage-quits and pollute accuracy
 # averages, so they are discarded at parse time (§6.1).
@@ -21,9 +28,22 @@ MIN_PLIES = 10
 
 _RETRY_BACKOFF_SECONDS = 60
 
+# The exact body Lichess returns when it declines the games-export request. This
+# is ambiguous: it appears both for a genuinely unknown user AND for a throttled
+# IP (a masked 429). We disambiguate via a cheap /api/user existence check.
+_NOT_FOUND_BODY = '{"error":"Not found"}'
+
 
 class LichessError(RuntimeError):
     """Raised when the Lichess API cannot be used to fetch games."""
+
+
+class LichessRateLimitError(LichessError):
+    """Raised when Lichess throttles the request (HTTP 429, or a masked 404)."""
+
+
+class LichessUserNotFoundError(LichessError):
+    """Raised when the requested user genuinely does not exist on Lichess."""
 
 
 def _ms_to_datetime(value: Any) -> datetime:
@@ -99,6 +119,21 @@ def parse_ndjson(text: str, username: str) -> list[dict[str, Any]]:
     return games
 
 
+def _user_exists(username: str, client: httpx.Client) -> bool:
+    """Cheap existence check via /api/user (unaffected by games-export throttling).
+
+    Any non-2xx response is treated as "cannot confirm existence" -> False, so the
+    caller falls back to the safe user-not-found error rather than masking a real
+    404 as a rate-limit.
+    """
+    url = LICHESS_USER_URL.format(username=username)
+    try:
+        response = client.get(url, headers={"User-Agent": USER_AGENT})
+    except httpx.HTTPError:
+        return False
+    return response.status_code == 200
+
+
 def fetch_games(
     username: str,
     *,
@@ -107,8 +142,11 @@ def fetch_games(
 ) -> list[dict[str, Any]]:
     """Fetch the subject's latest rapid/blitz games and return parsed dicts.
 
-    Retries once on HTTP 429 after a 60s backoff; any other failure raises
-    LichessError (§6.1).
+    Retries once on HTTP 429 after a 60s backoff. A genuine unknown user raises
+    LichessUserNotFoundError; throttling raises LichessRateLimitError. Lichess
+    masks some throttled requests as a 404 with body ``{"error":"Not found"}`` on
+    this endpoint, so an ambiguous 404 is disambiguated with a cheap /api/user
+    existence check (§6.1).
     """
     url = LICHESS_GAMES_URL.format(username=username)
     params: dict[str, str | int] = {
@@ -117,7 +155,7 @@ def fetch_games(
         "opening": "true",
         "moves": "true",
     }
-    headers = {"Accept": "application/x-ndjson"}
+    headers = {"Accept": "application/x-ndjson", "User-Agent": USER_AGENT}
 
     owns_client = client is None
     client = client or httpx.Client(timeout=30.0)
@@ -130,9 +168,15 @@ def fetch_games(
                 time.sleep(_RETRY_BACKOFF_SECONDS)
                 continue
             if response.status_code == 429:
-                raise LichessError("Lichess rate limit exceeded; try again later.")
+                raise LichessRateLimitError("Lichess rate limit exceeded; try again later.")
             if response.status_code == 404:
-                raise LichessError(f"Lichess user '{username}' not found.")
+                # Ambiguous: genuine unknown user, or a throttled request masked
+                # as a 404. If the user demonstrably exists, it's throttling.
+                if response.text.strip() == _NOT_FOUND_BODY and _user_exists(username, client):
+                    raise LichessRateLimitError(
+                        "Lichess declined the games export (rate limited); try again later."
+                    )
+                raise LichessUserNotFoundError(f"Lichess user '{username}' not found.")
             if response.status_code >= 400:
                 raise LichessError(f"Lichess request failed with status {response.status_code}.")
             return parse_ndjson(response.text, username)
