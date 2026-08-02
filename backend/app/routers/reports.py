@@ -1,6 +1,6 @@
 """Report endpoints (§5).
 
-POST /api/reports          create (freshness cache-hit 200 / queued 202 / 404 / 409 / 429)
+POST /api/reports          create (freshness cache-hit 200 / queued or in-progress 202 / 404 / 429)
 GET  /api/reports/{id}     status + payload + honest queue_position
 GET  /api/reports/by-username/{username}   latest done report payload
 """
@@ -83,12 +83,16 @@ def create_report_endpoint(
                 response.status_code = status.HTTP_200_OK
                 return ReportCreateResponse(report_id=str(done.id), status="done")
 
-        # 409: a job for this username is already queued/running. Reports older
-        # than the job timeout are treated as abandoned (crashed worker) so a
-        # stuck report never locks the username out permanently.
+        # Already in progress: instead of a bare 409 (which stranded the client
+        # with no report id to resume — the re-file loop bug), hand back the
+        # existing report so the frontend can resume live polling. Mirrors the
+        # cached-`done` return above. Reports older than the job timeout are
+        # treated as abandoned (crashed worker) so a stuck report never locks the
+        # username out permanently.
         active = latest_active_report(session, player_id, stale_after_seconds=JOB_TIMEOUT)
-        if active is not None:
-            raise HTTPException(status_code=409, detail="A report is already in progress.")
+        if active is not None and active.id is not None:
+            response.status_code = status.HTTP_202_ACCEPTED
+            return ReportCreateResponse(report_id=str(active.id), status=active.status)
 
         # New job: enforce the stricter per-IP job cap.
         if not allow_new_job(ip):

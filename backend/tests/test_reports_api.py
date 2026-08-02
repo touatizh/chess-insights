@@ -244,8 +244,9 @@ def test_stale_active_report_does_not_block_new_post(client: TestClient, monkeyp
     assert resp.status_code in (200, 202)
 
 
-def test_fresh_active_report_blocks_with_409(client: TestClient) -> None:
-    """A recent in-progress report still returns 409."""
+def test_fresh_active_report_resumes_existing(client: TestClient) -> None:
+    """A recent in-progress report is handed back so the client can resume
+    polling it (202 + that report's id), instead of a dead-end 409."""
     from datetime import UTC, datetime
 
     from sqlmodel import Session
@@ -258,15 +259,16 @@ def test_fresh_active_report_blocks_with_409(client: TestClient) -> None:
         s.add(player)
         s.commit()
         s.refresh(player)
-        s.add(
-            Report(
-                player_id=player.id,
-                status="analyzing",
-                progress=50,
-                created_at=datetime.now(UTC),
-            )
+        active = Report(
+            player_id=player.id,
+            status="analyzing",
+            progress=50,
+            created_at=datetime.now(UTC),
         )
+        s.add(active)
         s.commit()
+        s.refresh(active)
+        active_id = active.id
 
     with respx.mock:
         respx.get(url__regex=r"https://lichess\.org/api/games/user/.*").mock(
@@ -274,7 +276,10 @@ def test_fresh_active_report_blocks_with_409(client: TestClient) -> None:
         )
         resp = client.post("/api/reports", json={"username": "busy"})
 
-    assert resp.status_code == 409
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["report_id"] == str(active_id)
+    assert body["status"] == "analyzing"
 
 
 # --------------------------------------------------------------------------- #
