@@ -61,3 +61,4 @@ class Report(SQLModel, table=True):
     payload: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     rq_job_id: str | None = None
     error: str | None = None
+    featured: bool = Field(default=False)  # true for pre-generated demo reports
