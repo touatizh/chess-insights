@@ -37,8 +37,31 @@ class Analyzer(Protocol):
     def analyse(self, board: chess.Board, limit: chess.engine.Limit) -> chess.engine.InfoDict: ...
 
 
-# Depth 12 per §2/§6.2 (Cut List forbids > depth 14).
-DEFAULT_DEPTH = 12
+# Analysis search depth. The spec names depth 12 and the Cut List forbids > 14.
+# For the public demo we default lower (10): depth is exponential, so 12→10 cuts
+# per-report wall-clock ~2-3× at a small cost in cp_loss precision, which keeps
+# the queue moving for strangers. Override via ``ANALYSIS_DEPTH`` (clamped 6..14).
+_DEPTH_FLOOR = 6
+_DEPTH_CEILING = 14  # §9 Cut List: no deep analysis beyond depth 14.
+
+
+def _resolve_default_depth() -> int:
+    raw = os.environ.get("ANALYSIS_DEPTH", "10").strip()
+    try:
+        depth = int(raw)
+    except ValueError:
+        return 10
+    return max(_DEPTH_FLOOR, min(_DEPTH_CEILING, depth))
+
+
+DEFAULT_DEPTH = _resolve_default_depth()
+
+# A larger transposition table speeds repeated searches within a game without
+# changing evaluations (same depth → same scores). Threads is deliberately left
+# at Stockfish's default of 1: benchmarked on a 2-core host, depth-12 searches
+# resolve fast enough that multi-thread search overhead makes them *slower*, and
+# the worker shares those cores with the API. Hash is cheap and safe.
+ENGINE_HASH_MB = 128
 
 # Mate scores are clamped to this magnitude in centipawns (§6.2).
 MATE_CLAMP_CP = 1000
@@ -79,6 +102,12 @@ def open_engine(path: str | None = None) -> Iterator[chess.engine.SimpleEngine]:
     """
     engine = chess.engine.SimpleEngine.popen_uci(path or stockfish_path())
     try:
+        try:
+            engine.configure({"Hash": ENGINE_HASH_MB})
+        except chess.engine.EngineError:  # pragma: no cover - fake engines in tests
+            # A stub engine (unit tests) may not accept UCI options; analysis is
+            # unaffected, only the speed tuning is skipped.
+            pass
         yield engine
     finally:
         engine.quit()

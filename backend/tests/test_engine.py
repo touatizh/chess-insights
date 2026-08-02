@@ -264,3 +264,29 @@ def test_parse_san_lenient_raises_move_parse_error_on_garbage() -> None:
     board = chess.Board()
     with pytest.raises(MoveParseError):
         _parse_san_lenient(board, "Zz9", ply=0)
+
+
+# --------------------------------------------------------------------------- #
+# ANALYSIS_DEPTH resolution — env-tunable demo depth, clamped to the spec cap
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"),
+    [
+        (None, 10),  # unset → demo default
+        ("12", 12),  # explicit spec depth
+        ("8", 8),  # lower for speed
+        ("99", 14),  # clamped to §9 Cut List ceiling
+        ("2", 6),  # clamped to floor
+        ("not-a-number", 10),  # non-numeric → default
+    ],
+)
+def test_resolve_default_depth(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: int
+) -> None:
+    if env_value is None:
+        monkeypatch.delenv("ANALYSIS_DEPTH", raising=False)
+    else:
+        monkeypatch.setenv("ANALYSIS_DEPTH", env_value)
+    assert engine._resolve_default_depth() == expected

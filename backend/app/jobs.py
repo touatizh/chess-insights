@@ -108,7 +108,8 @@ def _analyze_new_games(session: Session, report_id: int, player_id: int) -> None
 def _analyze_game(session: Session, eng: engine.Analyzer, game: Game) -> None:
     """Analyze a single new game and persist its MoveEval rows (§4, §6.5)."""
     subject_color = chess.WHITE if game.color == "white" else chess.BLACK
-    analyses = engine.analyze_game(eng, game.moves, subject_color, depth=12)
+    # Depth comes from engine.DEFAULT_DEPTH (env-tunable, demo default 10).
+    analyses = engine.analyze_game(eng, game.moves, subject_color, depth=engine.DEFAULT_DEPTH)
     insert_move_evals(session, game, analyses)
     # Mark the game as analyzed so future incremental runs skip it.
     game.analyzed = True
