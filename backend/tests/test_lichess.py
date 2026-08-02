@@ -73,6 +73,22 @@ SHORT_GAME = {
     "moves": "e4 e5 Nf3",
 }
 
+# A non-standard start (fromPosition) — can't be replayed from the standard board,
+# so it must be skipped even though it has enough plies.
+VARIANT_GAME = {
+    "id": "variant01",
+    "speed": "blitz",
+    "createdAt": 1_700_000_400_000,
+    "winner": "white",
+    "variant": "fromPosition",
+    "players": {
+        "white": {"user": {"name": "someuser"}},
+        "black": {"user": {"name": "Rival"}},
+    },
+    "opening": {"name": "From Position", "eco": "A00"},
+    "moves": "e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be2 e5",
+}
+
 
 def _ndjson(*games: dict) -> str:
     return "\n".join(json.dumps(g) for g in games) + "\n"
@@ -125,6 +141,15 @@ def test_short_games_are_skipped() -> None:
     ids = {g["lichess_id"] for g in games}
     assert "abc12345" in ids
     assert "short001" not in ids
+
+
+@respx.mock
+def test_non_standard_variant_games_are_skipped() -> None:
+    _mock_route(_ndjson(FULL_GAME_WHITE_WIN, VARIANT_GAME))
+    games = fetch_games(USERNAME)
+    ids = {g["lichess_id"] for g in games}
+    assert "abc12345" in ids
+    assert "variant01" not in ids
 
 
 def test_parse_ndjson_skips_blank_lines() -> None:

@@ -43,6 +43,13 @@ def _auth_headers() -> dict[str, str]:
 # averages, so they are discarded at parse time (§6.1).
 MIN_PLIES = 10
 
+# Only standard-chess games are analyzable: the pipeline replays SAN from the
+# standard starting position, so any non-standard start (fromPosition) or chess
+# variant (chess960, atomic, …) desyncs the board and can't be scored. Lichess
+# tags these via the ``variant`` field; anything but "standard" is skipped at
+# parse time, same as short games.
+STANDARD_VARIANT = "standard"
+
 _RETRY_BACKOFF_SECONDS = 60
 
 # The exact body Lichess returns when it declines the games-export request. This
@@ -95,8 +102,9 @@ def _resolve_result(raw: dict[str, Any], color: str) -> str:
 def parse_game(line: str, username: str) -> dict[str, Any] | None:
     """Parse a single NDJSON line into a Game-shaped dict.
 
-    Returns None if the line is blank, the subject isn't a player, or the game
-    is below the minimum ply threshold.
+    Returns None if the line is blank, the subject isn't a player, the game is a
+    non-standard variant/starting position, or it is below the minimum ply
+    threshold.
     """
     line = line.strip()
     if not line:
@@ -106,6 +114,11 @@ def parse_game(line: str, username: str) -> dict[str, Any] | None:
 
     color = _resolve_color(raw, username)
     if color is None:
+        return None
+
+    # Skip variants and non-standard starting positions — they can't be replayed
+    # from the standard board (see STANDARD_VARIANT).
+    if raw.get("variant", STANDARD_VARIANT) != STANDARD_VARIANT:
         return None
 
     moves = raw.get("moves", "") or ""
