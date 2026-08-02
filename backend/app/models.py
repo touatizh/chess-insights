@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -20,9 +20,16 @@ class Player(SQLModel, table=True):
 
 
 class Game(SQLModel, table=True):
+    # Game rows are per-subject: color, result, and MoveEvals are all from the
+    # subject's perspective (§4). The same lichess_id can therefore legitimately
+    # appear once per tracked player (e.g. two friends who played each other and
+    # both ran reports), so uniqueness is scoped to (player_id, lichess_id) — not
+    # lichess_id alone. Dedupe in Phase 3 is likewise scoped per player.
+    __table_args__ = (UniqueConstraint("player_id", "lichess_id", name="uq_game_player_lichess"),)
+
     id: int | None = Field(default=None, primary_key=True)
     player_id: int = Field(foreign_key="player.id", index=True)
-    lichess_id: str = Field(index=True, unique=True)
+    lichess_id: str = Field(index=True)
     speed: str
     played_at: datetime
     color: str  # "white" | "black"
