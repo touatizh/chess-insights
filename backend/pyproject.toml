@@ -22,6 +22,9 @@ dev = [
     "respx",
     "pre-commit",
     "pip-audit",
+    "fakeredis",
+    "slowapi",
+    "uvicorn[standard]",
 ]
 
 [build-system]
