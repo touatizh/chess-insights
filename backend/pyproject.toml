@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
     "ruff",
     "mypy",
     "respx",
@@ -43,3 +44,9 @@ testpaths = ["tests"]
 markers = [
     "engine: tests that require a Stockfish binary",
 ]
+
+[tool.coverage.run]
+source = ["app/analysis"]
+
+[tool.coverage.report]
+show_missing = true
