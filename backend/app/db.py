@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 
 from sqlalchemy import event
-from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./chess_insights.db")
@@ -24,18 +23,21 @@ if DATABASE_URL.startswith("sqlite"):
 engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 
 
-@event.listens_for(Engine, "connect")
 def _set_sqlite_pragma(dbapi_connection: object, connection_record: object) -> None:
     """Enable WAL and a 5s busy timeout on every SQLite connection (§5)."""
-    # Only touch SQLite connections; the event fires for all engines.
-    if not DATABASE_URL.startswith("sqlite"):
-        return
     cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
     try:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=5000")
     finally:
         cursor.close()
+
+
+# Attach the pragma to THIS engine only (not the global Engine class), so test
+# suites or workers that spin up their own engines aren't affected. Only wired
+# for SQLite; Postgres needs neither WAL nor busy_timeout.
+if DATABASE_URL.startswith("sqlite"):
+    event.listens_for(engine, "connect")(_set_sqlite_pragma)
 
 
 def init_db() -> None:
