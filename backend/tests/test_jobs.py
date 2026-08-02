@@ -168,9 +168,9 @@ def test_job_progress_is_updating(monkeypatch: pytest.MonkeyPatch, db_engine, db
     seen: list[int] = []
     original = jobs.update_report
 
-    def capture(session, report_id, *, status=None, progress=None):
-        seen.append(progress)
-        return original(session, report_id, status=status, progress=progress)
+    def capture(session, report_id, **kwargs):
+        seen.append(kwargs.get("progress"))
+        return original(session, report_id, **kwargs)
 
     monkeypatch.setattr(jobs, "update_report", capture)
     jobs.run_report_job(_rid(report), "alice")
@@ -180,6 +180,49 @@ def test_job_progress_is_updating(monkeypatch: pytest.MonkeyPatch, db_engine, db
     assert 20 in progress_values
     assert 90 in progress_values  # aggregate stage
     assert all(0 <= p <= 100 for p in progress_values)
+
+
+def test_job_persists_analysis_counters(
+    monkeypatch: pytest.MonkeyPatch, db_engine, db_session
+) -> None:
+    """total_new stays fixed while analyzed_new climbs, so the frontend can show
+    an exact 'Analyzing new games… N/M' label."""
+    _patch(monkeypatch, [GAME_ONE, GAME_TWO])
+    player_id, _ = get_or_create_player("alice", db_session)
+    report = create_report(db_session, player_id)
+
+    # Capture the (total_new, analyzed_new) persisted to the DB at each update
+    # that touched the analysis counters.
+    snapshots: list[tuple[int | None, int | None]] = []
+    original = jobs.update_report
+
+    def capture(session, report_id, **kwargs):
+        result = original(session, report_id, **kwargs)
+        # Read straight from the DB row to reflect what a poller would see.
+        row = session.get(Report, report_id)
+        snapshots.append((row.total_new, row.analyzed_new))
+        return result
+
+    monkeypatch.setattr(jobs, "update_report", capture)
+    jobs.run_report_job(_rid(report), "alice")
+
+    # Filter to the analysis phase (total_new set).
+    during = [(t, a) for (t, a) in snapshots if t is not None]
+    assert during, "expected total_new to be persisted during analysis"
+
+    totals = {t for (t, _a) in during}
+    assert totals == {2}, f"total_new must stay fixed at 2, saw {totals}"
+
+    analyzed_seq = [a for (_t, a) in during if a is not None]
+    # Climbs 0 -> 1 -> 2 (monotonic non-decreasing, reaches the total).
+    assert analyzed_seq == sorted(analyzed_seq)
+    assert analyzed_seq[0] == 0
+    assert analyzed_seq[-1] == 2
+
+    # Final persisted row reflects full completion of the new games.
+    db_session.refresh(report)
+    assert report.total_new == 2
+    assert report.analyzed_new == 2
 
 
 def test_job_uses_stored_evals_for_second_report(

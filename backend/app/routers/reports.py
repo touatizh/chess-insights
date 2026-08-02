@@ -149,6 +149,8 @@ def report_status(report_id: int) -> ReportStatusResponse:
             payload=report.payload,  # type: ignore[arg-type]
             error=report.error,
             username=username,
+            total_new=report.total_new,
+            analyzed_new=report.analyzed_new,
         )
 
 

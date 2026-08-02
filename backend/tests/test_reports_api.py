@@ -128,6 +128,9 @@ def test_post_queues_job_then_completes_inline(client: TestClient) -> None:
     assert status["status"] == "done"
     assert status["username"] == "alice"
     assert status["payload"]["games_analyzed"] == 1
+    # Analysis counters surfaced for the "Analyzing N/M" label.
+    assert status["total_new"] == 1
+    assert status["analyzed_new"] == 1
 
 
 @respx.mock

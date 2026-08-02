@@ -225,9 +225,19 @@ def create_report(
 
 
 def update_report(
-    session: Session, report_id: int, *, status: str | None = None, progress: int | None = None
+    session: Session,
+    report_id: int,
+    *,
+    status: str | None = None,
+    progress: int | None = None,
+    total_new: int | None = None,
+    analyzed_new: int | None = None,
 ) -> None:
-    """Update a report's status/progress in place."""
+    """Update a report's status/progress/analysis counters in place.
+
+    ``total_new`` / ``analyzed_new`` drive the frontend's "Analyzing new games…
+    2/3" label, so they must be persisted as analysis progresses.
+    """
     report = session.exec(select(Report).where(Report.id == report_id)).first()
     if report is None:
         raise LookupError(f"report {report_id} not found")
@@ -235,6 +245,10 @@ def update_report(
         report.status = status
     if progress is not None:
         report.progress = progress
+    if total_new is not None:
+        report.total_new = total_new
+    if analyzed_new is not None:
+        report.analyzed_new = analyzed_new
     session.commit()
 
 

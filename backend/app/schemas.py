@@ -82,6 +82,9 @@ class ReportStatusResponse(BaseModel):
     payload: ReportPayload | None
     error: str | None
     username: str
+    # Exact analysis counters for the "Analyzing new games… N/M" label.
+    total_new: int | None = None
+    analyzed_new: int | None = None
 
 
 class ReportByUsernameResponse(BaseModel):

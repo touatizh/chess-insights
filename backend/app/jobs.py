@@ -55,9 +55,9 @@ def run_report_job(report_id: int, username: str) -> None:
             # 2. Dedupe + insert only new games (per player).
             new_games = insert_new_games(session, player_id, games)
 
-            # 3. Analyze new games only.
+            # 3. Analyze new games only. _analyze_new_games sets status=analyzing
+            # plus total_new/analyzed_new so the frontend can show "N/M".
             if new_games:
-                update_report(session, report_id, status="analyzing")
                 _analyze_new_games(session, report_id, player_id)
             else:
                 update_report(session, report_id, progress=_AGGREGATE_START_PROGRESS)
@@ -82,6 +82,9 @@ def _analyze_new_games(session: Session, report_id: int, player_id: int) -> None
     pending = [game for game in games if not game.analyzed]
     total = len(pending)
     span = _AGGREGATE_START_PROGRESS - _ANALYZE_START_PROGRESS
+    # Persist the denominator up front so the frontend's "Analyzing N/M" label
+    # has something to render from the first poll onward.
+    update_report(session, report_id, status="analyzing", total_new=total, analyzed_new=0)
     with engine.open_engine() as eng:
         for analyzed_count, game in enumerate(pending, start=1):
             _analyze_game(session, eng, game)
@@ -89,6 +92,7 @@ def _analyze_new_games(session: Session, report_id: int, player_id: int) -> None
                 session,
                 report_id,
                 progress=_ANALYZE_START_PROGRESS + (analyzed_count * span // total),
+                analyzed_new=analyzed_count,
             )
 
 
