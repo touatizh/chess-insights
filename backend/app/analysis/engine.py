@@ -24,6 +24,8 @@ import chess
 import chess.engine
 import chess.pgn
 
+from app.analysis.classify import classify_phase, classify_severity
+
 
 class Analyzer(Protocol):
     """Minimal engine interface used by the analysis functions.
@@ -51,10 +53,17 @@ def stockfish_path() -> str:
 
 @dataclass(frozen=True)
 class MoveAnalysis:
-    """Per-move analysis result for one of the subject's moves."""
+    """Per-move analysis result for one of the subject's moves.
+
+    Carries everything a MoveEval row needs (§4) so the caller never has to
+    replay the game: phase is classified from the position before the move during
+    the same board walk, and severity is derived from cp_loss.
+    """
 
     ply: int
     cp_loss: int
+    phase: str  # "opening" | "middlegame" | "endgame"
+    severity: str  # "ok" | "inaccuracy" | "mistake" | "blunder"
 
 
 @contextmanager
@@ -144,7 +153,9 @@ def analyze_game(
 
     ``moves_san`` is the space-separated SAN string stored on ``Game.moves``.
     Only the subject's own moves are evaluated (§4). Returns one
-    :class:`MoveAnalysis` per subject move, keyed by 0-based ply.
+    :class:`MoveAnalysis` per subject move, keyed by 0-based ply, carrying the
+    classified phase and severity so the caller (jobs.py) can build MoveEval rows
+    directly without replaying the game.
     """
     board = chess.Board()
     results: list[MoveAnalysis] = []
@@ -152,6 +163,16 @@ def analyze_game(
         move = board.parse_san(san)
         if board.turn == subject_color:
             cp_loss = cp_loss_for_move(engine, board, move, subject_color, depth=depth)
-            results.append(MoveAnalysis(ply=ply, cp_loss=cp_loss))
+            # ``board`` is the position before the subject's move — exactly what
+            # classify_phase needs, so no second replay is required downstream.
+            phase = classify_phase(board, ply)
+            results.append(
+                MoveAnalysis(
+                    ply=ply,
+                    cp_loss=cp_loss,
+                    phase=phase,
+                    severity=classify_severity(cp_loss),
+                )
+            )
         board.push(move)
     return results

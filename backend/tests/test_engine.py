@@ -168,6 +168,9 @@ def test_analyze_game_only_scores_subject_moves() -> None:
     assert [r.ply for r in results] == [0, 2]  # white plies only
     assert all(isinstance(r, MoveAnalysis) for r in results)
     assert all(r.cp_loss == 0 for r in results)
+    # phase + severity are populated in the same pass (no replay needed).
+    assert all(r.phase == "opening" for r in results)  # plies 0,2 -> full-moves 1,2
+    assert all(r.severity == "ok" for r in results)  # cp_loss 0
 
 
 def test_analyze_game_black_subject() -> None:
@@ -189,6 +192,42 @@ def test_analyze_game_black_subject() -> None:
     fake = FakeEngine(scores)
     results = analyze_game(fake, moves_san, subject)
     assert [r.ply for r in results] == [1, 3]
+
+
+def test_analyze_game_populates_phase_and_severity() -> None:
+    """MoveAnalysis carries phase (from the pre-move board) and severity so the
+    caller can build MoveEval rows without replaying the game."""
+    # 11 white moves get us past full-move 10 into the middlegame for the last one.
+    moves_san = "e4 e5 Nf3 Nc6 Bc4 Bc5 d3 d6 Nc3 Nf6 h3 h6 a3 a6 b3 b6 Be3 Be6 Qd2 Qd7 O-O-O O-O"
+    subject = chess.WHITE
+
+    scores: dict[str, chess.engine.PovScore] = {}
+    walk = chess.Board()
+    blunder_ply = 20  # white's 11th move (ply 20) -> full-move 11 -> middlegame
+    for ply, san in enumerate(moves_san.split()):
+        mv = walk.parse_san(san)
+        if walk.turn == subject:
+            scores[walk.fen()] = _cp(50, subject)
+            after = walk.copy()
+            after.push(mv)
+            # After the subject's move it is the opponent's turn, so the canned
+            # score is from the opponent's POV. A blunder means the opponent is
+            # now winning -> a large POSITIVE score for them (= bad for white).
+            after_cp = 400 if ply == blunder_ply else -50
+            scores[after.fen()] = _cp(after_cp, not subject)
+        walk.push(mv)
+
+    fake = FakeEngine(scores)
+    results = analyze_game(fake, moves_san, subject)
+    by_ply = {r.ply: r for r in results}
+
+    # Early move: opening + ok.
+    assert by_ply[0].phase == "opening"
+    assert by_ply[0].severity == "ok"
+    # The blunder ply: past full-move 10 with full material -> middlegame + blunder.
+    assert by_ply[blunder_ply].phase == "middlegame"
+    assert by_ply[blunder_ply].cp_loss == 450  # 50 - (-400)
+    assert by_ply[blunder_ply].severity == "blunder"
 
 
 def test_stockfish_path_env(monkeypatch: pytest.MonkeyPatch) -> None:

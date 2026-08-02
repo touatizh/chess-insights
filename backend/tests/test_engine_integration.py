@@ -17,7 +17,6 @@ import chess.pgn
 import pytest
 
 from app.analysis import engine
-from app.analysis.classify import classify_phase, classify_severity
 
 pytestmark = pytest.mark.engine
 
@@ -59,18 +58,14 @@ def test_stockfish_flags_queen_blunder_on_fixture_pgn() -> None:
 
     assert analyses, "expected at least one subject move analyzed"
 
-    # The last white move (Qg4, ply 10) must be flagged as a blunder.
+    # The last white move (Qg4, ply 10) must be flagged as a blunder. Severity
+    # and phase come straight off MoveAnalysis — no game replay needed.
     last = analyses[-1]
     assert last.ply == 10
     assert last.cp_loss >= 300
-    assert classify_severity(last.cp_loss) == "blunder"
+    assert last.severity == "blunder"
+    assert last.phase == "opening"  # ply 10 -> full-move 6
 
     # And a quiet early move should not be a blunder.
     first = analyses[0]
-    assert classify_severity(first.cp_loss) in {"ok", "inaccuracy"}
-
-    # Phase classification wired end-to-end on the blunder ply.
-    board_before = chess.Board()
-    for san in moves_san.split()[:10]:
-        board_before.push_san(san)
-    assert classify_phase(board_before, ply=10) == "opening"
+    assert first.severity in {"ok", "inaccuracy"}
