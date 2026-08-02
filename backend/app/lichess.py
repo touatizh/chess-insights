@@ -200,3 +200,41 @@ def fetch_games(
     finally:
         if owns_client:
             client.close()
+
+
+def fetch_latest_game_id(username: str, *, client: httpx.Client | None = None) -> str:
+    """Fetch the subject's most recent game id for the freshness check (§4).
+
+    Makes a single ``max=1`` games-export call. Returns the ``lichess_id`` when
+    one exists; returns ``""`` when the user has no eligible games; raises
+    :class:`LichessUserNotFoundError` for a genuinely unknown user and
+    :class:`LichessError` on throttling/other failures.
+    """
+    url = LICHESS_GAMES_URL.format(username=username)
+    params: dict[str, str | int] = {"max": 1, "perfType": "blitz,rapid"}
+    headers = {"Accept": "application/x-ndjson", **_auth_headers()}
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=30.0)
+    try:
+        response = client.get(url, params=params, headers=headers)
+        if response.status_code == 429:
+            raise LichessRateLimitError("Lichess rate limit exceeded; try again later.")
+        if response.status_code == 404:
+            # Ambiguous (as in fetch_games): user exists but has no eligible
+            # games, or a masked throttle. Disambiguate cheaply.
+            if response.text.strip() == _NOT_FOUND_BODY and _user_exists(username, client):
+                raise LichessRateLimitError(
+                    "Lichess declined the games export (rate limited); try again later."
+                )
+            raise LichessUserNotFoundError(f"Lichess user '{username}' not found.")
+        if response.status_code >= 400:
+            raise LichessError(f"Lichess request failed with status {response.status_code}.")
+
+        games = parse_ndjson(response.text, username)
+        if not games:
+            return ""
+        return str(games[0]["lichess_id"])
+    finally:
+        if owns_client:
+            client.close()
