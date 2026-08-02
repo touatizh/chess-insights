@@ -1,0 +1,45 @@
+[project]
+name = "chess-insights-backend"
+version = "0.1.0"
+description = "Chess Insights Platform backend"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi",
+    "sqlmodel",
+    "httpx",
+    "rq",
+    "redis",
+    "python-chess",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "respx",
+    "pre-commit",
+    "pip-audit",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "engine: tests that require a Stockfish binary",
+]

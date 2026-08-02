@@ -1,0 +1,116 @@
+# Files that no hook should ever touch (frontend build output, deps, lockfiles).
+exclude: |
+  (?x)^(
+    .*/node_modules/.*|
+    frontend/dist/.*|
+    frontend/package-lock\.json|
+    backend/uv\.lock
+  )$
+
+repos:
+  # ---------------------------
+  # Must-Have Hooks (language-agnostic — apply to backend + frontend)
+  # ---------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  # Python lint + formatting (run inside backend/ where pyproject + uv live)
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: bash -c 'cd backend && .venv/bin/ruff check --fix'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff-format
+        entry: bash -c 'cd backend && .venv/bin/ruff format'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+
+  # ---------------------------
+  # Highly Recommended
+  # ---------------------------
+  # Python type checking (local so mypy sees project deps via uv, per §10)
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: bash -c 'cd backend && .venv/bin/mypy app'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+
+  # Python security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        files: ^backend/
+        args: ["--exclude", "backend/tests"]
+
+  # Python dependency vulnerability checks (pip-audit; safety is broken on 3.14)
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: bash -c 'cd backend && .venv/bin/pip-audit'
+        language: system
+        types: [python]
+        files: ^backend/
+        pass_filenames: false
+
+  # ---------------------------
+  # Frontend (Phase 4) — uncomment once frontend/ is scaffolded (Vite + TS + ESLint).
+  # These run inside frontend/ and only fire when frontend files change.
+  # Requires `npm ci` to have populated frontend/node_modules and the matching
+  # package.json scripts ("lint", plus a "typecheck": "tsc --noEmit").
+  # ---------------------------
+  # - repo: local
+  #   hooks:
+  #     - id: eslint
+  #       name: eslint
+  #       entry: bash -c 'cd frontend && npm run lint'
+  #       language: system
+  #       files: ^frontend/.*\.(ts|tsx|js|jsx)$
+  #       pass_filenames: false
+  #     - id: prettier
+  #       name: prettier
+  #       entry: bash -c 'cd frontend && npx prettier --write .'
+  #       language: system
+  #       files: ^frontend/.*\.(ts|tsx|js|jsx|css|json|md)$
+  #       pass_filenames: false
+  #     - id: tsc
+  #       name: tsc (typecheck)
+  #       entry: bash -c 'cd frontend && npm run typecheck'
+  #       language: system
+  #       files: ^frontend/.*\.(ts|tsx)$
+  #       pass_filenames: false
+
+  # Config validation (language-agnostic)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: detect-private-key
+
+  # ---------------------------
+  # Optional / Nice-to-Have
+  # ---------------------------
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.1.0
+    hooks:
+      - id: codespell
+        exclude: uv\.lock|tests/fixtures/
