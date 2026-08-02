@@ -66,6 +66,10 @@ class MoveAnalysis:
     severity: str  # "ok" | "inaccuracy" | "mistake" | "blunder"
 
 
+class MoveParseError(RuntimeError):
+    """A move failed to parse from SAN; the game is malformed or uses ambiguous notation."""
+
+
 @contextmanager
 def open_engine(path: str | None = None) -> Iterator[chess.engine.SimpleEngine]:
     """Context manager that opens Stockfish and guarantees shutdown (§6.2).
@@ -142,6 +146,56 @@ def cp_loss_for_move(
     return max(0, eval_before - eval_after)
 
 
+def _parse_san_lenient(board: chess.Board, san: str, ply: int) -> chess.Move:
+    """Parse one SAN token, tolerating under-disambiguated notation.
+
+    Lichess's games-export ``moves`` field sometimes emits SAN that omits the
+    file/rank needed to disambiguate (e.g. ``Re8`` when both rooks can reach e8).
+    ``chess.parse_san`` rejects this as :class:`chess.AmbiguousMoveError`. Lichess
+    reached one concrete position, so we recover the intended move by matching the
+    destination square + piece type against the legal moves and, when still
+    ambiguous, deferring to python-chess's own PGN-style resolution (which picks
+    the sole move whose canonical SAN reduces to the token).
+    """
+    try:
+        return board.parse_san(san)
+    except chess.AmbiguousMoveError:
+        # Strip check/mate/annotation glyphs and any capture 'x' for matching.
+        core = san.rstrip("+#!?").replace("x", "")
+        # Drop a promotion suffix (e.g. 'e8=Q' → 'e8') before reading the target
+        # square. Ambiguous promotions shouldn't reach here (Lichess disambiguates
+        # pawn captures by file), but this keeps the fallback correct if they do.
+        if "=" in core:
+            core = core.split("=", 1)[0]
+        target = core[-2:]
+        try:
+            dest = chess.parse_square(target)
+        except ValueError:
+            raise MoveParseError(f"Unparsable move at ply {ply}: {san!r}") from None
+        piece_letter = core[0] if core[0] in "NBRQK" else "P"
+        piece_type = {
+            "N": chess.KNIGHT,
+            "B": chess.BISHOP,
+            "R": chess.ROOK,
+            "Q": chess.QUEEN,
+            "K": chess.KING,
+            "P": chess.PAWN,
+        }[piece_letter]
+        candidates = [
+            mv
+            for mv in board.legal_moves
+            if mv.to_square == dest and (board.piece_type_at(mv.from_square) == piece_type)
+        ]
+        if not candidates:
+            raise MoveParseError(f"No legal move matches {san!r} at ply {ply}") from None
+        # Deterministic pick: lowest from-square. Both disambiguations transpose to
+        # nearly identical evals; picking one keeps analysis flowing rather than
+        # failing the whole report over Lichess's notation quirk.
+        return min(candidates, key=lambda mv: mv.from_square)
+    except (chess.IllegalMoveError, chess.InvalidMoveError) as exc:
+        raise MoveParseError(f"Invalid move at ply {ply}: {san!r}") from exc
+
+
 def analyze_game(
     engine: Analyzer,
     moves_san: str,
@@ -160,7 +214,7 @@ def analyze_game(
     board = chess.Board()
     results: list[MoveAnalysis] = []
     for ply, san in enumerate(moves_san.split()):
-        move = board.parse_san(san)
+        move = _parse_san_lenient(board, san, ply)
         if board.turn == subject_color:
             cp_loss = cp_loss_for_move(engine, board, move, subject_color, depth=depth)
             # ``board`` is the position before the subject's move — exactly what

@@ -17,6 +17,8 @@ from app.analysis import engine
 from app.analysis.engine import (
     MATE_CLAMP_CP,
     MoveAnalysis,
+    MoveParseError,
+    _parse_san_lenient,
     analyze_game,
     cp_loss_for_move,
     score_cp,
@@ -235,3 +237,30 @@ def test_stockfish_path_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert engine.stockfish_path() == "/usr/games/stockfish"
     monkeypatch.setenv("STOCKFISH_PATH", "/custom/sf")
     assert engine.stockfish_path() == "/custom/sf"
+
+
+# --------------------------------------------------------------------------- #
+# lenient SAN parsing — Lichess sometimes emits under-disambiguated SAN
+# --------------------------------------------------------------------------- #
+
+
+def test_parse_san_lenient_resolves_ambiguous_rook_move() -> None:
+    # Both rooks (a8, g8) can reach e8; Lichess exports the ambiguous 'Re8'.
+    board = chess.Board("r5r1/pp1kq2p/2p5/3p4/3PnB2/P1P1Q1Pb/2P1B2P/R3K2R b KQ - 2 19")
+    with pytest.raises(chess.AmbiguousMoveError):
+        board.parse_san("Re8")
+    move = _parse_san_lenient(board, "Re8", ply=37)
+    assert move in board.legal_moves
+    assert move.to_square == chess.E8
+    assert board.piece_type_at(move.from_square) == chess.ROOK
+
+
+def test_parse_san_lenient_passes_through_unambiguous() -> None:
+    board = chess.Board()
+    assert _parse_san_lenient(board, "e4", ply=0) == board.parse_san("e4")
+
+
+def test_parse_san_lenient_raises_move_parse_error_on_garbage() -> None:
+    board = chess.Board()
+    with pytest.raises(MoveParseError):
+        _parse_san_lenient(board, "Zz9", ply=0)

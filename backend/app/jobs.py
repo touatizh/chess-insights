@@ -87,7 +87,16 @@ def _analyze_new_games(session: Session, report_id: int, player_id: int) -> None
     update_report(session, report_id, status="analyzing", total_new=total, analyzed_new=0)
     with engine.open_engine() as eng:
         for analyzed_count, game in enumerate(pending, start=1):
-            _analyze_game(session, eng, game)
+            try:
+                _analyze_game(session, eng, game)
+            except engine.MoveParseError:
+                # One malformed/ambiguous game must not sink the whole report
+                # (§6.1 sparse-games philosophy). Mark it analyzed with no evals
+                # so incremental re-runs never retry-and-refail it, then move on.
+                # It contributes nothing to aggregation, exactly like a quiet game.
+                game.analyzed = True
+                session.add(game)
+                session.commit()
             update_report(
                 session,
                 report_id,
@@ -146,6 +155,12 @@ def _aggregate(session: Session, player_id: int, username: str) -> ReportPayload
 
 def _user_safe_error(exc: Exception) -> str:
     """Map an exception to a user-safe message."""
+    if isinstance(exc, engine.MoveParseError):
+        # Parsing error indicates a malformed or ambiguous move string; the user
+        # didn't make the game invalid, so we skip that game and try the next.
+        if exc.args:
+            return exc.args[0]
+        return "A move in one of your games could not be parsed; trying the next game."
     if isinstance(exc, LichessUserNotFoundError):
         return f"Lichess user '{exc.args[0]}' not found."
     if isinstance(exc, LichessRateLimitError):

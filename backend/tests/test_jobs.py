@@ -243,3 +243,42 @@ def test_job_uses_stored_evals_for_second_report(
     db_session.refresh(report2)
     assert report2.payload is not None
     assert report2.payload["games_analyzed"] == 2
+
+
+def test_job_skips_unparsable_game_and_completes(
+    monkeypatch: pytest.MonkeyPatch, db_engine, db_session
+) -> None:
+    """One game raising MoveParseError must not fail the whole report: the bad
+    game is skipped (marked analyzed, no evals) and the report still completes."""
+    _patch(monkeypatch, [GAME_ONE, GAME_TWO])
+
+    real_analyze = jobs.engine.analyze_game
+
+    def flaky_analyze(eng, moves_san, subject_color, *, depth):
+        # GAME_TWO is the unparsable one; GAME_ONE analyzes normally.
+        if moves_san == GAME_TWO["moves"]:
+            raise jobs.engine.MoveParseError("Invalid move at ply 4: 'Zz9'")
+        return real_analyze(eng, moves_san, subject_color, depth=depth)
+
+    monkeypatch.setattr(jobs.engine, "analyze_game", flaky_analyze)
+
+    player_id, _ = get_or_create_player("carol", db_session)
+    report = create_report(db_session, player_id)
+    jobs.run_report_job(_rid(report), "carol")
+
+    db_session.refresh(report)
+    # Report completes despite the bad game.
+    assert report.status == "done"
+    assert report.progress == 100
+    assert report.payload is not None
+    # Both games are counted; both are marked analyzed so they're never retried.
+    assert report.payload["games_analyzed"] == 2
+    games = {g.lichess_id: g for g in db_session.exec(select(Game)).all()}
+    assert all(g.analyzed for g in games.values())
+
+    # The good game produced evals; the skipped game produced none.
+    good_id = games[GAME_ONE["lichess_id"]].id
+    bad_id = games[GAME_TWO["lichess_id"]].id
+    all_evals = db_session.exec(select(MoveEval)).all()
+    assert any(e.game_id == good_id for e in all_evals)
+    assert not any(e.game_id == bad_id for e in all_evals)
