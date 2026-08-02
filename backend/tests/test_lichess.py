@@ -183,6 +183,30 @@ def test_fetch_games_sends_user_agent() -> None:
 
 
 @respx.mock
+def test_fetch_games_sends_bearer_token_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LICHESS_TOKEN", "fake-token-123")
+    route = _mock_route(_ndjson(FULL_GAME_WHITE_WIN))
+    fetch_games(USERNAME)
+    assert route.calls.last.request.headers["Authorization"] == "Bearer fake-token-123"
+
+
+@respx.mock
+def test_fetch_games_no_auth_header_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LICHESS_TOKEN", raising=False)
+    route = _mock_route(_ndjson(FULL_GAME_WHITE_WIN))
+    fetch_games(USERNAME)
+    assert "Authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
+def test_blank_token_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LICHESS_TOKEN", "   ")
+    route = _mock_route(_ndjson(FULL_GAME_WHITE_WIN))
+    fetch_games(USERNAME)
+    assert "Authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
 def test_fetch_games_500_raises() -> None:
     _mock_route("", status_code=500)
     with pytest.raises(LichessError):

@@ -1,12 +1,14 @@
 """Fetch and parse games from the Lichess public API (§6.1).
 
 Endpoint returns NDJSON (one JSON game per line). No auth token is required for
-public games.
+public games, but an optional ``LICHESS_TOKEN`` (env var only) is sent as a
+Bearer token when present to raise rate limits.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -21,6 +23,21 @@ LICHESS_USER_URL = "https://lichess.org/api/user/{username}"
 # a 404 {"error":"Not found"} instead of an honest 429 for throttled IPs, which
 # breaks naive retry-on-429 logic.
 USER_AGENT = "chess-insights/0.1 (+https://github.com/touatizh/chess-insights)"
+
+
+def _auth_headers() -> dict[str, str]:
+    """Base headers, adding a Bearer token from LICHESS_TOKEN when present.
+
+    An authenticated request gets substantially higher Lichess rate limits. The
+    token is read from the environment at call time and never logged or persisted
+    — config via env var only (§10). Absent/blank token -> anonymous request.
+    """
+    headers = {"User-Agent": USER_AGENT}
+    token = os.environ.get("LICHESS_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
 
 # Games shorter than this many plies are aborts/rage-quits and pollute accuracy
 # averages, so they are discarded at parse time (§6.1).
@@ -128,7 +145,7 @@ def _user_exists(username: str, client: httpx.Client) -> bool:
     """
     url = LICHESS_USER_URL.format(username=username)
     try:
-        response = client.get(url, headers={"User-Agent": USER_AGENT})
+        response = client.get(url, headers=_auth_headers())
     except httpx.HTTPError:
         return False
     return response.status_code == 200
@@ -155,7 +172,7 @@ def fetch_games(
         "opening": "true",
         "moves": "true",
     }
-    headers = {"Accept": "application/x-ndjson", "User-Agent": USER_AGENT}
+    headers = {"Accept": "application/x-ndjson", **_auth_headers()}
 
     owns_client = client is None
     client = client or httpx.Client(timeout=30.0)
