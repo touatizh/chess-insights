@@ -117,9 +117,7 @@ def stored_lichess_ids(session: Session, player_id: int) -> set[str]:
     return set(rows)
 
 
-def insert_new_games(
-    session: Session, player_id: int, games: list[dict[str, object]]
-) -> int:
+def insert_new_games(session: Session, player_id: int, games: list[dict[str, object]]) -> int:
     """Insert games for a player, skipping any whose lichess_id is already stored.
 
     Dedupe is scoped per player (§4, (player_id, lichess_id) unique constraint).
@@ -164,9 +162,7 @@ def latest_games(session: Session, player_id: int, limit: int = 30) -> list[Game
 
 def has_game(session: Session, player_id: int, lichess_id: str) -> bool:
     """True if this player already stores this lichess_id (freshness check §4)."""
-    stmt = select(Game.id).where(
-        Game.player_id == player_id, Game.lichess_id == lichess_id
-    )
+    stmt = select(Game.id).where(Game.player_id == player_id, Game.lichess_id == lichess_id)
     return session.exec(stmt).first() is not None
 
 
@@ -194,9 +190,7 @@ def insert_move_evals(
     session.commit()
 
 
-def move_evals_for_games(
-    session: Session, game_ids: list[int]
-) -> dict[int, list[MoveEval]]:
+def move_evals_for_games(session: Session, game_ids: list[int]) -> dict[int, list[MoveEval]]:
     """MoveEvals grouped by game_id (only for the given game_ids)."""
     stmt = select(MoveEval).where(col(MoveEval.game_id).in_(game_ids))
     grouped: dict[int, list[MoveEval]] = {}
@@ -269,9 +263,7 @@ def get_report(session: Session, report_id: int) -> Report | None:
     return session.exec(select(Report).where(Report.id == report_id)).first()
 
 
-def latest_done_report(
-    session: Session, player_id: int
-) -> Report | None:
+def latest_done_report(session: Session, player_id: int) -> Report | None:
     """Most recent done report for a player (freshness check / by-username)."""
     stmt = (
         select(Report)
