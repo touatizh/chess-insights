@@ -11,6 +11,7 @@ dependencies = [
     "redis",
     "python-chess",
     "uvicorn",
+    "pillow",
 ]
 
 [project.optional-dependencies]
