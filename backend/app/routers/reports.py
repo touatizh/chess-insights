@@ -8,6 +8,7 @@ GET  /api/reports/by-username/{username}   latest done report payload
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi.responses import Response as FastAPIResponse
 from sqlmodel import Session
 
 from app.db import (
@@ -28,11 +29,13 @@ from app.lichess import (
     fetch_latest_game_id,
 )
 from app.models import Player
+from app.og import render_og_card
 from app.queue import JOB_TIMEOUT, get_queue, queue_position
 from app.ratelimit import allow_freshness, allow_new_job
 from app.schemas import (
     ReportByUsernameResponse,
     ReportCreateResponse,
+    ReportPayload,
     ReportRequest,
     ReportStatusResponse,
 )
@@ -130,6 +133,27 @@ def report_by_username(username: str) -> ReportByUsernameResponse:
             payload=done.payload,  # type: ignore[arg-type]
             games_analyzed=games_analyzed,
         )
+
+
+@router.get("/{report_id}/og-image")
+def report_og_image(report_id: int) -> FastAPIResponse:
+    """1200×630 PNG share card for a done report (Phase 4b, growth loop).
+
+    404 if the report doesn't exist or isn't done. Cached aggressively — a
+    report's payload never changes once done, so the card is immutable.
+    """
+    with session_scope() as session:
+        report = get_report(session, report_id)
+        if report is None or report.status != "done" or report.payload is None:
+            raise HTTPException(status_code=404, detail="No card available for this report.")
+        payload = ReportPayload(**report.payload)
+
+    png = render_og_card(payload, report_id)
+    return FastAPIResponse(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/{report_id}", response_model=ReportStatusResponse)
