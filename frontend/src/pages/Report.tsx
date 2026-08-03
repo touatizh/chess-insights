@@ -12,6 +12,7 @@ import {
   TopOpenings,
 } from "../components/charts";
 import { AnalyzingBody, FailedBody, QueuedBody } from "../components/states";
+import { useDocumentMeta } from "../useDocumentMeta";
 import {
   createReport,
   getReportByUsername,
@@ -66,6 +67,7 @@ export default function Report() {
               onRetry={handleRetry}
               username={displayName}
               caseNumber={caseNumber}
+              reportId={rid}
             />
           ) : (
             <ByUsernameView
@@ -99,9 +101,17 @@ interface PollingViewProps {
   onRetry: () => void;
   username: string;
   caseNumber: string;
+  reportId: string | null;
 }
 
-function PollingView({ status, isLoading, onRetry, username, caseNumber }: PollingViewProps) {
+function PollingView({
+  status,
+  isLoading,
+  onRetry,
+  username,
+  caseNumber,
+  reportId,
+}: PollingViewProps) {
   if (isLoading || !status) {
     return (
       <>
@@ -112,7 +122,7 @@ function PollingView({ status, isLoading, onRetry, username, caseNumber }: Polli
   }
 
   if (status.status === "done" && status.payload) {
-    return <DoneReport payload={status.payload} caseNumber={caseNumber} />;
+    return <DoneReport payload={status.payload} caseNumber={caseNumber} reportId={reportId} />;
   }
 
   return (
@@ -179,7 +189,7 @@ function ByUsernameView({ payload, isLoading, isError, username }: ByUsernameVie
     );
   }
 
-  return <DoneReport payload={payload} caseNumber="····" />;
+  return <DoneReport payload={payload} caseNumber="····" reportId={null} />;
 }
 
 // --------------------------------------------------------------------------- //
@@ -189,7 +199,15 @@ function ByUsernameView({ payload, isLoading, isError, username }: ByUsernameVie
 // Verdict glyph: the heavier ?? blunder mark stamps in on mount.
 const VERDICT_GLYPH = "??";
 
-function DoneReport({ payload, caseNumber }: { payload: ReportPayload; caseNumber: string }) {
+function DoneReport({
+  payload,
+  caseNumber,
+  reportId,
+}: {
+  payload: ReportPayload;
+  caseNumber: string;
+  reportId: string | null;
+}) {
   const [copied, setCopied] = useState(false);
 
   const filed = formatDate(payload.generated_at);
@@ -197,6 +215,17 @@ function DoneReport({ payload, caseNumber }: { payload: ReportPayload; caseNumbe
   const blackPct = winPct(payload.win_rate["black"]);
   const totalBlunders = sumBlunders(payload);
   const avgLoss = overallAvgLoss(payload.accuracy_trend);
+
+  // Per-report share card: only when we know the numeric report id (polling
+  // path). The og:image is an absolute URL so scrapers can fetch it.
+  useDocumentMeta({
+    title: `${payload.username} — Adjudication Report`,
+    description: payload.signature_leak.headline,
+    url: `${window.location.origin}/report/${encodeURIComponent(payload.username)}`,
+    image: reportId
+      ? `${window.location.origin}/api/reports/${encodeURIComponent(reportId)}/og-image`
+      : undefined,
+  });
 
   async function copyLink() {
     try {
