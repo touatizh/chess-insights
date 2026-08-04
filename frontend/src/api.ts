@@ -24,11 +24,19 @@ export interface OpeningSummary {
   score_pct: number;
 }
 
+export interface WorstMove {
+  ply: number;
+  san: string;
+  cp_loss: number;
+  severity: string; // "mistake" | "blunder"
+}
+
 export interface TrendPoint {
   game_index: number;
   played_at: string;
   avg_cp_loss: number;
   result: string; // "win" | "loss" | "draw"
+  worst_move: WorstMove | null;
 }
 
 export interface BlunderBucket {
@@ -39,6 +47,7 @@ export interface BlunderBucket {
 export interface SignatureLeak {
   headline: string;
   detail: string;
+  glyph: string; // "?" or "!"
 }
 
 export interface ReportPayload {
@@ -83,6 +92,8 @@ export interface ReportByUsernameResponse {
 export interface FeaturedReportItem {
   username: string;
   report_id: string;
+  verdict_headline: string;
+  verdict_glyph: string; // "?" or "!"
 }
 
 export interface FeaturedReportsResponse {

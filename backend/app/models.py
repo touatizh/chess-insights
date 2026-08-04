@@ -47,6 +47,7 @@ class MoveEval(SQLModel, table=True):
     cp_loss: int
     phase: str  # "opening" | "middlegame" | "endgame"
     severity: str  # "ok" | "inaccuracy" | "mistake" | "blunder"
+    san: str = Field(default="")  # move in algebraic notation, e.g. "Qg4"
 
 
 class Report(SQLModel, table=True):

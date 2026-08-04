@@ -190,7 +190,7 @@ def render_og_card(
     verdict_max_w = inner_w - 120  # leave room for the glyph column (~92 + gap 28)
     lines = _wrap(draw, payload.signature_leak.headline, verdict_font, verdict_max_w, max_lines=3)
 
-    _draw_glyph(img, (inner_x, y - 6), glyph_font)
+    _draw_glyph(img, (inner_x, y - 6), glyph_font, payload.signature_leak.glyph)
     text_x = inner_x + 120
     line_h = int(40 * 1.32)
     ty = y
@@ -277,10 +277,17 @@ def _draw_card_surface(img: Image.Image, draw: ImageDraw.ImageDraw, x: int, y: i
     img.paste(stripe, (x, y), stripe)
 
 
-def _draw_glyph(img: Image.Image, xy: tuple[int, int], font: ImageFont.FreeTypeFont) -> None:
-    """The ?? blunder glyph in stamp red, rotated -6° (design signature)."""
+def _draw_glyph(
+    img: Image.Image, xy: tuple[int, int], font: ImageFont.FreeTypeFont, glyph: str
+) -> None:
+    """The verdict glyph in stamp red, rotated -6° (design signature).
+
+    ``glyph`` is the signature-leak mark ("?" or "!") and is drawn verbatim —
+    chess notation is meaningful, so "?" (dubious) must not become "??" (blunder).
+    """
+    mark = glyph or "?"
     layer = Image.new("RGBA", (160, 130), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).text((0, 0), "??", font=font, fill=STAMP + (255,))
+    ImageDraw.Draw(layer).text((0, 0), mark, font=font, fill=STAMP + (255,))
     rotated = layer.rotate(6, expand=True, resample=Image.Resampling.BICUBIC)
     img.paste(rotated, xy, rotated)
 

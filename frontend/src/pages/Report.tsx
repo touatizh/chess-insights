@@ -196,9 +196,6 @@ function ByUsernameView({ payload, isLoading, isError, username }: ByUsernameVie
 // Done report body — the full layout
 // --------------------------------------------------------------------------- //
 
-// Verdict glyph: the heavier ?? blunder mark stamps in on mount.
-const VERDICT_GLYPH = "??";
-
 function DoneReport({
   payload,
   caseNumber,
@@ -215,6 +212,10 @@ function DoneReport({
   const blackPct = winPct(payload.win_rate["black"]);
   const totalBlunders = sumBlunders(payload);
   const avgLoss = overallAvgLoss(payload.accuracy_trend);
+
+  // Verdict glyph is the real signature-leak mark ("?"/"!"), drawn verbatim —
+  // chess notation is meaningful ("?" ≠ "??"). Stamps in on mount.
+  const verdictGlyph = payload.signature_leak.glyph || "?";
 
   // Per-report share card: only when we know the numeric report id (polling
   // path). The og:image is an absolute URL so scrapers can fetch it.
@@ -255,7 +256,7 @@ function DoneReport({
           style={{ transform: "rotate(-6deg)" }}
           aria-hidden="true"
         >
-          {VERDICT_GLYPH}
+          {verdictGlyph}
         </div>
         <div className="font-serif text-[1.18rem] italic leading-[1.4]">
           {payload.signature_leak.headline}

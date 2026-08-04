@@ -87,6 +87,7 @@ class MoveAnalysis:
     cp_loss: int
     phase: str  # "opening" | "middlegame" | "endgame"
     severity: str  # "ok" | "inaccuracy" | "mistake" | "blunder"
+    san: str  # the move in algebraic notation, e.g. "Qg4"
 
 
 class MoveParseError(RuntimeError):
@@ -247,7 +248,8 @@ def analyze_game(
         if board.turn == subject_color:
             cp_loss = cp_loss_for_move(engine, board, move, subject_color, depth=depth)
             # ``board`` is the position before the subject's move — exactly what
-            # classify_phase needs, so no second replay is required downstream.
+            # classify_phase needs, and board.san(move) gives the canonical SAN
+            # (resolving any under-disambiguated input), so no replay is required.
             phase = classify_phase(board, ply)
             results.append(
                 MoveAnalysis(
@@ -255,6 +257,7 @@ def analyze_game(
                     cp_loss=cp_loss,
                     phase=phase,
                     severity=classify_severity(cp_loss),
+                    san=board.san(move),
                 )
             )
         board.push(move)

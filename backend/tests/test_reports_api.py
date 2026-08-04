@@ -291,3 +291,41 @@ def test_featured_empty_by_default(client: TestClient) -> None:
     resp = client.get("/api/featured")
     assert resp.status_code == 200
     assert resp.json() == {"featured": []}
+
+
+def test_featured_includes_verdict_from_payload(client: TestClient) -> None:
+    """A featured report exposes its verdict headline + glyph for the case tabs."""
+    from sqlmodel import Session
+
+    import app.db as app_db
+    from app.models import Player, Report
+
+    with Session(app_db.engine) as s:
+        player = Player(username="hikaru")
+        s.add(player)
+        s.commit()
+        s.refresh(player)
+        s.add(
+            Report(
+                player_id=player.id,
+                status="done",
+                progress=100,
+                featured=True,
+                payload={
+                    "signature_leak": {
+                        "headline": "Wins 71% as Black",
+                        "detail": "…",
+                        "glyph": "!",
+                    }
+                },
+            )
+        )
+        s.commit()
+
+    resp = client.get("/api/featured")
+    assert resp.status_code == 200
+    items = resp.json()["featured"]
+    assert len(items) == 1
+    assert items[0]["username"] == "hikaru"
+    assert items[0]["verdict_headline"] == "Wins 71% as Black"
+    assert items[0]["verdict_glyph"] == "!"

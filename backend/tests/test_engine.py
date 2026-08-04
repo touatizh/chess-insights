@@ -223,13 +223,15 @@ def test_analyze_game_populates_phase_and_severity() -> None:
     results = analyze_game(fake, moves_san, subject)
     by_ply = {r.ply: r for r in results}
 
-    # Early move: opening + ok.
+    # Early move: opening + ok, and the canonical SAN is captured.
     assert by_ply[0].phase == "opening"
     assert by_ply[0].severity == "ok"
+    assert by_ply[0].san == "e4"
     # The blunder ply: past full-move 10 with full material -> middlegame + blunder.
     assert by_ply[blunder_ply].phase == "middlegame"
     assert by_ply[blunder_ply].cp_loss == 450  # 50 - (-400)
     assert by_ply[blunder_ply].severity == "blunder"
+    assert by_ply[blunder_ply].san  # non-empty SAN recorded for the move
 
 
 def test_stockfish_path_env(monkeypatch: pytest.MonkeyPatch) -> None:

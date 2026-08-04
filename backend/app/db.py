@@ -185,6 +185,7 @@ def insert_move_evals(
                 cp_loss=analysis.cp_loss,
                 phase=analysis.phase,
                 severity=analysis.severity,
+                san=analysis.san,
             )
         )
     session.commit()

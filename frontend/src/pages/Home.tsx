@@ -3,12 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import Header from "../components/Header";
-import { ApiError, createReport, getFeatured } from "../api";
-
-// Real severity glyphs only (?? blunder / ?! mistake). No brilliant-move glyph:
-// the design rests on structure encoding real data. Featured tabs show the
-// heavier ?? mark as the case's filed glyph.
-const CASE_GLYPH = "??";
+import { ApiError, createReport, getFeatured, type FeaturedReportItem } from "../api";
 
 export default function Home() {
   const navigate = useNavigate();
@@ -122,7 +117,7 @@ export default function Home() {
 }
 
 interface FeaturedDrawerProps {
-  items: { username: string; report_id: string }[] | undefined;
+  items: FeaturedReportItem[] | undefined;
   isLoading: boolean;
   isError: boolean;
 }
@@ -162,12 +157,17 @@ function FeaturedDrawer({ items, isLoading, isError }: FeaturedDrawerProps) {
             No.{String(index + 1).padStart(4, "0")}
           </span>
           <span className="flex-1 font-mono text-[0.88rem] font-semibold">{item.username}</span>
+          {item.verdict_headline ? (
+            <span className="hidden max-w-[130px] flex-shrink-0 text-right font-serif text-[0.72rem] italic text-ink-soft [@media(min-width:560px)]:block">
+              &ldquo;{item.verdict_headline}&rdquo;
+            </span>
+          ) : null}
           <span
             className="font-marker text-[1.1rem] text-stamp"
             style={{ transform: "rotate(-6deg)" }}
             aria-hidden="true"
           >
-            {CASE_GLYPH}
+            {item.verdict_glyph || "?"}
           </span>
         </a>
       ))}

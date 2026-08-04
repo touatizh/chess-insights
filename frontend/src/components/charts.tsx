@@ -22,14 +22,18 @@ const BRASS_DIM = "#8C7238";
 
 const AXIS_TICK = { fontFamily: "'JetBrains Mono', monospace", fontSize: 10, fill: INK_SOFT };
 
-// Chart severity glyphs are DERIVED from each game's avg_cp_loss (the only real
-// per-game signal the payload exposes) using the §6.3 severity thresholds:
-//   blunder ≥ 300cp → ??   |   mistake 150–299cp → ?!   |   quieter games: no mark.
-// No brilliant-move glyph exists — do not invent one (design guide honesty rule).
-function glyphFor(avgCpLoss: number): "??" | "?!" | null {
-  if (avgCpLoss >= 300) return "??";
-  if (avgCpLoss >= 150) return "?!";
+// Chart severity glyphs come straight from the game's real worst move
+// (payload.accuracy_trend[i].worst_move): blunder → ??, mistake → ?!. Quiet
+// games carry no worst_move and get no mark. No derivation, no invented glyph.
+function glyphForSeverity(severity: string): "??" | "?!" | null {
+  if (severity === "blunder") return "??";
+  if (severity === "mistake") return "?!";
   return null;
+}
+
+// 0-based ply → "24." style move number (white and black share a full move).
+function moveNumber(ply: number): number {
+  return Math.floor(ply / 2) + 1;
 }
 
 const RESULT_COLOR: Record<string, string> = {
@@ -53,8 +57,8 @@ export function AccuracyTrend({ data }: { data: TrendPoint[] }) {
     return <EmptyChart label="No games to chart yet." />;
   }
 
-  // Custom dot: colored by result; overlays a marker glyph when the game's
-  // avg cp loss crosses the mistake/blunder line. Tapping reveals the real data.
+  // Custom dot: colored by result; overlays a marker glyph only when the game
+  // has a real worst move (mistake/blunder). Tapping reveals that move.
   interface DotProps {
     cx?: number;
     cy?: number;
@@ -63,13 +67,15 @@ export function AccuracyTrend({ data }: { data: TrendPoint[] }) {
   const renderDot = (props: DotProps) => {
     const { cx, cy, payload } = props;
     if (cx == null || cy == null || !payload) return <g key="empty" />;
-    const glyph = glyphFor(payload.avg_cp_loss);
+    const worst = payload.worst_move;
+    const glyph = worst ? glyphForSeverity(worst.severity) : null;
     const color = RESULT_COLOR[payload.result] ?? INK_SOFT;
     const key = `dot-${payload.game_index}`;
-    if (!glyph) {
+    if (!glyph || !worst) {
       return <circle key={key} cx={cx} cy={cy} r={3} fill={color} />;
     }
-    const detail = `Game ${payload.game_index + 1} · avg ${payload.avg_cp_loss}cp · ${payload.result}`;
+    // e.g. "24. Qg4?? −612cp" — real move notation and cp loss.
+    const detail = `${moveNumber(worst.ply)}. ${worst.san}${glyph} \u2212${worst.cp_loss}cp`;
     return (
       <g key={key}>
         <circle cx={cx} cy={cy} r={4} fill={STAMP} />

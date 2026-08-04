@@ -38,11 +38,22 @@ class OpeningSummary(TypedDict):
     score_pct: float
 
 
+class WorstMove(TypedDict):
+    ply: int
+    san: str
+    cp_loss: int
+    severity: str  # "mistake" | "blunder" (only these ever surface here)
+
+
 class TrendPoint(TypedDict):
     game_index: int
     played_at: str
     avg_cp_loss: float
     result: str
+    # The game's single worst move, but only when it was a mistake/blunder;
+    # otherwise None (quiet games get no chart glyph). Honest scope: only "?!"
+    # and "??" data ever reaches the frontend.
+    worst_move: WorstMove | None
 
 
 class BlunderBucket(TypedDict):
@@ -53,6 +64,10 @@ class BlunderBucket(TypedDict):
 class SignatureLeak(TypedDict):
     headline: str
     detail: str
+    # Verdict glyph — "?" for opening/move-bucket findings (rules 1/2/3/6),
+    # "!" for color/phase findings (rules 4/5). Never anything else
+    # (frontend-design-guide.md "Honest glyph scope").
+    glyph: str
 
 
 class ReportPayload(TypedDict):
@@ -80,6 +95,7 @@ class MoveEvalInput:
     cp_loss: int
     phase: str  # "opening" | "middlegame" | "endgame"
     severity: str  # "ok" | "inaccuracy" | "mistake" | "blunder"
+    san: str = ""  # move in algebraic notation, e.g. "Qg4"
 
 
 @dataclass(frozen=True)
@@ -221,6 +237,25 @@ def _top_openings(stats: Sequence[_OpeningStat]) -> list[OpeningSummary]:
     ]
 
 
+def _worst_move(game: GameInput) -> WorstMove | None:
+    """The game's highest-cp_loss move, but only if it was a mistake/blunder.
+
+    Pulled from the stored per-move evals (not avg_cp_loss), so the chart glyph
+    reflects a real move. Quiet games (worst move is ok/inaccuracy) return None.
+    """
+    if not game.move_evals:
+        return None
+    worst = max(game.move_evals, key=lambda e: e.cp_loss)
+    if worst.severity not in ("mistake", "blunder"):
+        return None
+    return WorstMove(
+        ply=worst.ply,
+        san=worst.san,
+        cp_loss=worst.cp_loss,
+        severity=worst.severity,
+    )
+
+
 def _accuracy_trend(games: Sequence[GameInput]) -> list[TrendPoint]:
     ordered = sorted(games, key=lambda g: g.played_at)
     return [
@@ -229,6 +264,7 @@ def _accuracy_trend(games: Sequence[GameInput]) -> list[TrendPoint]:
             played_at=game.played_at.isoformat(),
             avg_cp_loss=_round1(_avg_cp_loss(game.move_evals)),
             result=game.result,
+            worst_move=_worst_move(game),
         )
         for index, game in enumerate(ordered)
     ]
@@ -288,7 +324,13 @@ _TEMPLATES: dict[int, list[str]] = {
 _DEFAULT_LEAK: SignatureLeak = {
     "headline": "Not enough games to find a signature leak yet.",
     "detail": "Play a few more rapid or blitz games and check back.",
+    "glyph": "?",
 }
+
+# Verdict glyph per rule (frontend-design-guide.md "Honest glyph scope"):
+# opening / move-bucket findings read as a dubious "?" mark; color / phase
+# findings read as an emphatic "!". Nothing else is ever emitted.
+_RULE_GLYPH: dict[int, str] = {1: "?", 2: "?", 3: "?", 4: "!", 5: "!", 6: "?"}
 
 
 def _pick(rule: int, rng: random.Random) -> str:
@@ -305,7 +347,7 @@ def _leak_opening_low_score(
                 f"{s.name}: {s.games} games, {s.wins} wins, "
                 f"{s.draws} draws — {_round1(s.score_pct)}% score."
             )
-            return {"headline": headline, "detail": detail}
+            return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[1]}
     return None
 
 
@@ -322,7 +364,7 @@ def _leak_opening_high_cploss(
                 f"The {s.name} averages {_round1(s.avg_cp_loss)} centipawns lost per move "
                 f"vs your {_round1(overall_avg)} overall."
             )
-            return {"headline": headline, "detail": detail}
+            return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[2]}
     return None
 
 
@@ -339,7 +381,7 @@ def _leak_blunder_bucket(
             bucket = b["move_bucket"]
             headline = _pick(3, rng).format(bucket=bucket, pct=_round1(pct))
             detail = f"{count} of {total} blunders ({_round1(pct)}%) fall in moves {bucket}."
-            return {"headline": headline, "detail": detail}
+            return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[3]}
     return None
 
 
@@ -369,7 +411,7 @@ def _leak_color_gap(win_rate: dict[str, WinRateColor], rng: random.Random) -> Si
         f"White: {_round1(white_pct)}% win rate over {white_games} games. "
         f"Black: {_round1(black_pct)}% over {black_games}."
     )
-    return {"headline": headline, "detail": detail}
+    return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[4]}
 
 
 def _leak_phase_blunders(
@@ -386,7 +428,7 @@ def _leak_phase_blunders(
     headline = _pick(5, rng).format(phase=worst_phase, pct=_round1(pct))
     count = per_phase[worst_phase]
     detail = f"{count} of {total} blunders ({_round1(pct)}%) are in the {worst_phase}."
-    return {"headline": headline, "detail": detail}
+    return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[5]}
 
 
 def _leak_fallback(stats: Sequence[_OpeningStat], rng: random.Random) -> SignatureLeak | None:
@@ -399,7 +441,7 @@ def _leak_fallback(stats: Sequence[_OpeningStat], rng: random.Random) -> Signatu
         f"The {s.name} averages {_round1(s.avg_cp_loss)} centipawns lost per move "
         f"across {s.games} games."
     )
-    return {"headline": headline, "detail": detail}
+    return {"headline": headline, "detail": detail, "glyph": _RULE_GLYPH[6]}
 
 
 def _signature_leak(
@@ -421,7 +463,11 @@ def _signature_leak(
     ):
         if finding is not None:
             return finding
-    return SignatureLeak(headline=_DEFAULT_LEAK["headline"], detail=_DEFAULT_LEAK["detail"])
+    return SignatureLeak(
+        headline=_DEFAULT_LEAK["headline"],
+        detail=_DEFAULT_LEAK["detail"],
+        glyph=_DEFAULT_LEAK["glyph"],
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -146,6 +146,7 @@ def _aggregate(session: Session, player_id: int, username: str) -> ReportPayload
                         cp_loss=ev.cp_loss,
                         phase=ev.phase,
                         severity=ev.severity,
+                        san=ev.san,
                     )
                     for ev in game_evals
                 ),

@@ -32,11 +32,19 @@ class OpeningSummary(BaseModel):
     score_pct: float
 
 
+class WorstMove(BaseModel):
+    ply: int
+    san: str
+    cp_loss: int
+    severity: str  # "mistake" | "blunder"
+
+
 class TrendPoint(BaseModel):
     game_index: int
     played_at: str
     avg_cp_loss: float
     result: str
+    worst_move: WorstMove | None = None
 
 
 class BlunderBucket(BaseModel):
@@ -47,6 +55,7 @@ class BlunderBucket(BaseModel):
 class SignatureLeak(BaseModel):
     headline: str
     detail: str
+    glyph: str  # "?" or "!" only
 
 
 class ReportPayload(BaseModel):
@@ -95,6 +104,10 @@ class ReportByUsernameResponse(BaseModel):
 class FeaturedReportItem(BaseModel):
     username: str
     report_id: str
+    # Verdict preview for the home-page case tabs (design guide "Layout — Home
+    # page"). Pulled from the cached payload's signature_leak.
+    verdict_headline: str
+    verdict_glyph: str  # "?" or "!"
 
 
 class FeaturedReportsResponse(BaseModel):

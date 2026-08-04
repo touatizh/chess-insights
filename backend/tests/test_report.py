@@ -82,7 +82,7 @@ def test_empty_games_still_valid_shape() -> None:
     assert report["top_openings"] == []
     assert report["accuracy_trend"] == []
     assert report["blunder_distribution_by_move"] == []
-    assert set(report["signature_leak"].keys()) == {"headline", "detail"}
+    assert set(report["signature_leak"].keys()) == {"headline", "detail", "glyph"}
     # win_rate + errors_by_phase keep full structure even when empty.
     assert report["win_rate"] == {
         "white": {"win": 0, "loss": 0, "draw": 0},
@@ -151,6 +151,52 @@ def test_accuracy_trend_is_chronological_with_avg() -> None:
     assert trend[1]["avg_cp_loss"] == 200.0
 
 
+def test_worst_move_null_for_quiet_game() -> None:
+    # Worst move is an inaccuracy (<150cp) → no glyph data surfaces.
+    games = [_game(evals=[_ev(0, 40), _ev(2, 120)])]
+    trend = build_report("Bob", games, rng=_rng())["accuracy_trend"]
+    assert trend[0]["worst_move"] is None
+
+
+def test_worst_move_populated_for_blunder_game() -> None:
+    # The highest-cp_loss move is a blunder → worst_move carries the real move.
+    games = [
+        _game(
+            evals=[
+                MoveEvalInput(ply=0, cp_loss=40, phase="opening", severity="ok", san="e4"),
+                MoveEvalInput(
+                    ply=46, cp_loss=612, phase="middlegame", severity="blunder", san="Qg4"
+                ),
+                MoveEvalInput(
+                    ply=48, cp_loss=90, phase="middlegame", severity="inaccuracy", san="a3"
+                ),
+            ]
+        )
+    ]
+    trend = build_report("Bob", games, rng=_rng())["accuracy_trend"]
+    worst = trend[0]["worst_move"]
+    assert worst is not None
+    assert worst == {"ply": 46, "san": "Qg4", "cp_loss": 612, "severity": "blunder"}
+
+
+def test_worst_move_prefers_highest_cp_loss_mistake() -> None:
+    # Highest cp_loss is a mistake (150–299) → surfaces as the worst move.
+    games = [
+        _game(
+            evals=[
+                MoveEvalInput(
+                    ply=10, cp_loss=200, phase="middlegame", severity="mistake", san="Nf3"
+                ),
+                MoveEvalInput(
+                    ply=12, cp_loss=60, phase="middlegame", severity="inaccuracy", san="h3"
+                ),
+            ]
+        )
+    ]
+    worst = build_report("Bob", games, rng=_rng())["accuracy_trend"][0]["worst_move"]
+    assert worst == {"ply": 10, "san": "Nf3", "cp_loss": 200, "severity": "mistake"}
+
+
 def test_blunder_distribution_buckets() -> None:
     evals = [
         _ev(0, 400),  # full-move 1 -> bucket 1-5
@@ -176,7 +222,8 @@ def test_leak_rule1_low_score_opening_wins() -> None:
     report = build_report("Bob", games, rng=_rng())
     leak = report["signature_leak"]
     assert "London System" in leak["headline"]
-    assert set(leak.keys()) == {"headline", "detail"}
+    assert set(leak.keys()) == {"headline", "detail", "glyph"}
+    assert leak["glyph"] == "?"  # rule 1 → opening finding
 
 
 def test_leak_rule2_high_cploss_opening() -> None:
@@ -192,6 +239,7 @@ def test_leak_rule2_high_cploss_opening() -> None:
     ]
     report = build_report("Bob", baseline + leaky, rng=_rng())
     assert "Leaky Line" in report["signature_leak"]["headline"]
+    assert report["signature_leak"]["glyph"] == "?"  # rule 2 → opening finding
 
 
 def test_leak_rule3_blunder_bucket() -> None:
@@ -209,6 +257,7 @@ def test_leak_rule3_blunder_bucket() -> None:
     report = build_report("Bob", games, rng=_rng())
     headline = report["signature_leak"]["headline"]
     assert "6-10" in headline
+    assert report["signature_leak"]["glyph"] == "?"  # rule 3 → move-bucket finding
 
 
 def test_leak_rule4_color_gap() -> None:
@@ -222,6 +271,7 @@ def test_leak_rule4_color_gap() -> None:
     report = build_report("Bob", games, rng=_rng())
     headline = report["signature_leak"]["headline"]
     assert "white" in headline.lower() and "black" in headline.lower()
+    assert report["signature_leak"]["glyph"] == "!"  # rule 4 → color finding
 
 
 def test_leak_rule5_phase_blunders() -> None:
@@ -244,6 +294,7 @@ def test_leak_rule5_phase_blunders() -> None:
     report = build_report("Bob", games, rng=_rng())
     headline = report["signature_leak"]["headline"]
     assert "endgame" in headline
+    assert report["signature_leak"]["glyph"] == "!"  # rule 5 → phase finding
 
 
 def test_leak_fallback_rule6() -> None:
@@ -256,11 +307,13 @@ def test_leak_fallback_rule6() -> None:
     report = build_report("Bob", games, rng=_rng())
     headline = report["signature_leak"]["headline"]
     assert "Meh Opening" in headline
+    assert report["signature_leak"]["glyph"] == "?"  # rule 6 → opening finding
 
 
 def test_leak_default_when_no_data() -> None:
     report = build_report("Nobody", [], rng=_rng())
     assert "enough games" in report["signature_leak"]["headline"].lower()
+    assert report["signature_leak"]["glyph"] == "?"  # default mark
 
 
 def test_specificity_rule1_beats_rule5() -> None:
