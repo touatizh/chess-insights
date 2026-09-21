@@ -190,3 +190,24 @@ def test_og_endpoint_404_for_non_done_report(client: TestClient) -> None:
         s.commit()
         rid = report.id
     assert client.get(f"/api/reports/{rid}/og-image").status_code == 404
+
+
+def test_og_endpoint_tolerates_legacy_payload_without_glyph(client: TestClient) -> None:
+    """Reports stored before the glyph feature have no signature_leak.glyph; the
+    card must still render (glyph backfilled to "?") rather than 500."""
+    import app.db as app_db
+
+    legacy = _payload().model_dump()
+    del legacy["signature_leak"]["glyph"]
+
+    with app_db.session_scope() as s:
+        pid, _ = app_db.get_or_create_player("legacy", s)
+        report = app_db.create_report(s, pid, status="done", progress=100)
+        report.payload = legacy
+        s.add(report)
+        s.commit()
+        rid = report.id
+
+    resp = client.get(f"/api/reports/{rid}/og-image")
+    assert resp.status_code == 200
+    assert Image.open(io.BytesIO(resp.content)).size == (1200, 630)

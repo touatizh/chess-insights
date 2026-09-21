@@ -18,6 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from app.db import init_db
 from app.ratelimit import limiter
 from app.routers import jobs as jobs_router
+from app.routers import preview as preview_router
 from app.routers import reports as reports_router
 
 CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "http://localhost:5173")
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
 
     app.include_router(reports_router.router)
     app.include_router(jobs_router.router)
+    app.include_router(preview_router.router)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:

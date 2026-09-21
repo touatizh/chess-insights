@@ -47,6 +47,18 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _with_glyph_default(payload: dict) -> dict:
+    """Backfill signature_leak.glyph for reports stored before the glyph feature.
+
+    Legacy payloads have no glyph, which would fail ReportPayload validation. The
+    default "?" mark keeps the OG card renderable without a data migration.
+    """
+    leak = payload.get("signature_leak")
+    if isinstance(leak, dict) and "glyph" not in leak:
+        payload = {**payload, "signature_leak": {**leak, "glyph": "?"}}
+    return payload
+
+
 @router.post("", response_model=ReportCreateResponse)
 def create_report_endpoint(
     body: ReportRequest, request: Request, response: Response
@@ -146,7 +158,7 @@ def report_og_image(report_id: int) -> FastAPIResponse:
         report = get_report(session, report_id)
         if report is None or report.status != "done" or report.payload is None:
             raise HTTPException(status_code=404, detail="No card available for this report.")
-        payload = ReportPayload(**report.payload)
+        payload = ReportPayload(**_with_glyph_default(report.payload))
 
     png = render_og_card(payload, report_id)
     return FastAPIResponse(
