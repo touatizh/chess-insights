@@ -12,6 +12,7 @@ dependencies = [
     "python-chess",
     "uvicorn",
     "pillow",
+    "slowapi",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +25,6 @@ dev = [
     "pre-commit",
     "pip-audit",
     "fakeredis",
-    "slowapi",
     "uvicorn[standard]",
 ]
 
