@@ -143,6 +143,52 @@ def test_bot_preview_tolerates_legacy_payload_without_glyph(client: TestClient) 
     assert "Najdorf 11 times" in resp.text
 
 
+def test_absolute_urls_when_public_base_url_set(client: TestClient, monkeypatch) -> None:
+    """Scrapers don't reliably resolve relative og:image URLs, so a configured
+    PUBLIC_BASE_URL must produce absolute image and canonical URLs."""
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://chess.example.com")
+    rid = _seed_done_report()
+
+    body = client.get("/report/touatizh", headers={"User-Agent": BOT_UAS[0]}).text
+
+    assert f'content="https://chess.example.com/api/reports/{rid}/og-image"' in body
+    assert 'content="https://chess.example.com/report/touatizh"' in body
+
+
+def test_relative_urls_when_public_base_url_unset(client: TestClient, monkeypatch) -> None:
+    """Unset is the local-dev default and must keep the paths root-relative."""
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    rid = _seed_done_report()
+
+    body = client.get("/report/touatizh", headers={"User-Agent": BOT_UAS[0]}).text
+
+    assert f'content="/api/reports/{rid}/og-image"' in body
+    assert "https://" not in body
+
+
+def test_trailing_slash_in_base_url_does_not_double(client: TestClient, monkeypatch) -> None:
+    """A base URL copied with a trailing slash must not yield "//api/...", which
+    scrapers would resolve as a protocol-relative host."""
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://chess.example.com/")
+    rid = _seed_done_report()
+
+    body = client.get("/report/touatizh", headers={"User-Agent": BOT_UAS[0]}).text
+
+    assert f'content="https://chess.example.com/api/reports/{rid}/og-image"' in body
+    assert "com//" not in body
+
+
+def test_generic_page_has_no_canonical_or_image(client: TestClient, monkeypatch) -> None:
+    """The unknown-user fallback advertises no per-report card, even when a base
+    URL is configured."""
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://chess.example.com")
+
+    body = client.get("/report/ghostuser", headers={"User-Agent": BOT_UAS[0]}).text
+
+    assert "og:url" not in body
+    assert "og:image" not in body
+
+
 def test_non_bot_is_not_intercepted(client: TestClient) -> None:
     rid = _seed_done_report()
     resp = client.get("/report/touatizh", headers={"User-Agent": NON_BOT_UA})

@@ -17,6 +17,7 @@ Browsers keep hitting the SPA; this route only ever sees bots in production.
 from __future__ import annotations
 
 import html
+import os
 from typing import Final
 
 from fastapi import APIRouter, Request
@@ -53,7 +54,7 @@ _PAGE_TEMPLATE = """\
 <meta property="og:site_name" content="Chess Insights" />
 <meta property="og:title" content="{title}" />
 <meta property="og:description" content="{description}" />
-{image_tags}
+{url_tag}{image_tags}
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="{title}" />
 <meta name="twitter:description" content="{description}" />
@@ -62,6 +63,27 @@ _PAGE_TEMPLATE = """\
 <body></body>
 </html>
 """
+
+
+def _base_url() -> str:
+    """The site's public origin, or "" when unconfigured.
+
+    Read per-request rather than at import so deployments (and tests) can set it
+    without reloading the module. Trailing slashes are stripped so joining never
+    produces a doubled separator.
+    """
+    return os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
+
+def _absolute(path: str) -> str:
+    """Prefix a root-relative path with the public origin when one is set.
+
+    Unfurl scrapers don't reliably resolve relative og:image URLs, so production
+    must serve absolute ones. Falls back to the relative path when
+    ``PUBLIC_BASE_URL`` is unset, which keeps local development working.
+    """
+    base = _base_url()
+    return f"{base}{path}" if base else path
 
 
 def _is_bot(user_agent: str) -> bool:
@@ -73,10 +95,12 @@ def _is_bot(user_agent: str) -> bool:
 def _report_page(headline: str, report_id: int, username: str) -> HTMLResponse:
     title = f"{username} — Adjudication Report"
     description = headline or GENERIC_DESCRIPTION
-    image = f"/api/reports/{report_id}/og-image"
+    image = _absolute(f"/api/reports/{report_id}/og-image")
+    canonical = _absolute(f"/report/{username}")
     body = _PAGE_TEMPLATE.format(
         title=html.escape(title),
         description=html.escape(description),
+        url_tag=f'<meta property="og:url" content="{html.escape(canonical)}" />\n',
         image_tags=(
             f'<meta property="og:image" content="{html.escape(image)}" />\n'
             f'<meta name="twitter:image" content="{html.escape(image)}" />'
@@ -89,6 +113,7 @@ def _generic_page() -> HTMLResponse:
     body = _PAGE_TEMPLATE.format(
         title=html.escape(GENERIC_TITLE),
         description=html.escape(GENERIC_DESCRIPTION),
+        url_tag="",  # no canonical URL for the generic fallback
         image_tags="",  # no per-report card for the generic fallback
     )
     return HTMLResponse(content=body, status_code=200)
